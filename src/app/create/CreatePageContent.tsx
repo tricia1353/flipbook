@@ -1,6 +1,11 @@
+"use client";
+
 import Link from "next/link";
+import { useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { validateMediaFile } from "@/domain/mediaValidation";
 import { TEMPLATES } from "@/domain/templates";
-import type { CreationMode } from "@/domain/types";
+import type { CreationMode, PromptFieldKey } from "@/domain/types";
 
 type CreatePageContentProps = {
   mode: CreationMode;
@@ -30,8 +35,83 @@ const modeCopy = {
 >;
 
 export function CreatePageContent({ mode }: CreatePageContentProps) {
+  const router = useRouter();
   const copy = modeCopy[mode];
-  const templates = TEMPLATES.filter((template) => template.mode === mode);
+  const templates = useMemo(() => TEMPLATES.filter((template) => template.mode === mode), [mode]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState(templates[0]?.id ?? "");
+  const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) ?? templates[0];
+  const [promptInputs, setPromptInputs] = useState<Partial<Record<PromptFieldKey, string>>>({});
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadMessage, setUploadMessage] = useState("先用本地文件名模拟上传，后续接对象存储 API。");
+  const [submitState, setSubmitState] = useState<"idle" | "submitting" | "error">("idle");
+  const [submitError, setSubmitError] = useState("");
+
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0] ?? null;
+    setSelectedFile(file);
+
+    if (!file) {
+      setUploadMessage("先用本地文件名模拟上传，后续接对象存储 API。");
+      return;
+    }
+
+    const result = validateMediaFile(file);
+    setUploadMessage(result.ok ? `${file.name} 已选择，创建项目时会作为素材引用提交。` : result.message);
+  }
+
+  function updatePromptInput(key: PromptFieldKey, value: string) {
+    setPromptInputs((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedTemplate) return;
+
+    const mediaValidation = selectedFile ? validateMediaFile(selectedFile) : undefined;
+    if (selectedFile && mediaValidation && !mediaValidation.ok) {
+      setSubmitError(mediaValidation.message);
+      setSubmitState("error");
+      return;
+    }
+
+    setSubmitState("submitting");
+    setSubmitError("");
+
+    const response = await fetch("/api/projects", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        mode,
+        templateId: selectedTemplate.id,
+        promptInputs,
+        assetRefs: selectedFile
+          ? [
+              {
+                assetType: mode === "upload_video" ? "source_video" : "reference_image",
+                fileName: selectedFile.name,
+                contentType: selectedFile.type,
+                size: selectedFile.size,
+              },
+            ]
+          : [],
+      }),
+    });
+
+    const payload = (await response.json()) as { previewUrl?: string; error?: string };
+
+    if (!response.ok || !payload.previewUrl) {
+      setSubmitState("error");
+      setSubmitError(payload.error ?? "创建预览任务失败，请稍后重试。");
+      return;
+    }
+
+    router.push(payload.previewUrl);
+  }
 
   return (
     <main className="app-shell">
@@ -46,7 +126,7 @@ export function CreatePageContent({ mode }: CreatePageContentProps) {
           <div className="status-pill">API-first flow</div>
         </header>
 
-        <div className="create-grid">
+        <form className="create-grid" onSubmit={handleSubmit}>
           <aside className="create-rail">
             <p className="eyebrow">{copy.label}</p>
             <h1 className="create-title">{copy.title}</h1>
@@ -63,19 +143,26 @@ export function CreatePageContent({ mode }: CreatePageContentProps) {
               </Link>
             </div>
 
-            <div className="upload-dropzone">
+            <label className="upload-dropzone">
               <span className="upload-icon" aria-hidden="true">
                 +
               </span>
               <span className="upload-title">{copy.uploadLabel}</span>
               <span className="upload-meta">MP4 / MOV / JPG / PNG</span>
-            </div>
+              <input className="file-input" type="file" accept="video/mp4,video/quicktime,image/jpeg,image/png,image/webp" onChange={handleFileChange} />
+              <span className="upload-help">{uploadMessage}</span>
+            </label>
 
             <div className="prompt-panel">
-              {copy.fields.map((field) => (
+              {(selectedTemplate?.requiredInputs ?? []).map((field) => (
                 <label className="prompt-field" key={field}>
-                  <span>{field}</span>
-                  <input placeholder={`填写${field}`} />
+                  <span>{fieldLabel[field]}</span>
+                  <input
+                    name={field}
+                    placeholder={`填写${fieldLabel[field]}`}
+                    value={promptInputs[field] ?? ""}
+                    onChange={(event) => updatePromptInput(field, event.currentTarget.value)}
+                  />
                 </label>
               ))}
             </div>
@@ -92,7 +179,13 @@ export function CreatePageContent({ mode }: CreatePageContentProps) {
 
             <div className="template-grid">
               {templates.map((template, index) => (
-                <article className="template-card" key={template.id}>
+                <button
+                  className={template.id === selectedTemplate?.id ? "template-card selected" : "template-card"}
+                  key={template.id}
+                  type="button"
+                  onClick={() => setSelectedTemplateId(template.id)}
+                  aria-pressed={template.id === selectedTemplate?.id}
+                >
                   <div className="template-thumb" data-index={index + 1}>
                     <span>{String(index + 1).padStart(2, "0")}</span>
                   </div>
@@ -104,7 +197,7 @@ export function CreatePageContent({ mode }: CreatePageContentProps) {
                       <span>{template.jobType}</span>
                     </div>
                   </div>
-                </article>
+                </button>
               ))}
             </div>
 
@@ -113,20 +206,28 @@ export function CreatePageContent({ mode }: CreatePageContentProps) {
               <code>
                 POST /api/projects {"{"} mode, templateId, promptInputs, assetRefs {"}"}
               </code>
-              <button className="entry-action compact" type="button">
+              <button className="entry-action compact" type="submit" disabled={submitState === "submitting"}>
                 <span>
-                  <span className="entry-title">创建预览任务</span>
-                  <span className="entry-desc">下一步接入项目 API、mock AI job 和翻页预览。</span>
+                  <span className="entry-title">{submitState === "submitting" ? "正在创建任务" : "创建预览任务"}</span>
+                  <span className="entry-desc">调用 /api/projects，生成 mock AI job 和 50 帧翻页预览。</span>
                 </span>
                 <span className="entry-arrow" aria-hidden="true">
                   →
                 </span>
               </button>
+              {submitError ? <p className="form-error">{submitError}</p> : null}
             </div>
           </section>
-        </div>
+        </form>
       </section>
     </main>
   );
 }
 
+const fieldLabel: Record<PromptFieldKey, string> = {
+  subject: "主角",
+  scene: "场景",
+  mood: "氛围",
+  style: "风格",
+  blessing: "祝福语",
+};

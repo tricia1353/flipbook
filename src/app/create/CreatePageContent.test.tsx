@@ -1,5 +1,12 @@
 import { render, screen } from "@testing-library/react";
+import { vi } from "vitest";
 import { CreatePageContent } from "./CreatePageContent";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+  }),
+}));
 
 test("renders upload video creation page", () => {
   render(<CreatePageContent mode="upload_video" />);
@@ -16,4 +23,3 @@ test("renders AI generated video creation page", () => {
   expect(screen.getByText("我的宠物在月球奔跑")).toBeInTheDocument();
   expect(screen.getByText("上传本人/宠物参考图")).toBeInTheDocument();
 });
-
