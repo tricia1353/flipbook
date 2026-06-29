@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation";
 import { validateMediaFile } from "@/domain/mediaValidation";
 import { TEMPLATES } from "@/domain/templates";
 import type { CreationMode, PromptFieldKey } from "@/domain/types";
+import { VideoFrameExtractor } from "@/components/video/VideoFrameExtractor";
+import { AiCoverGenerator } from "@/components/ai/AiCoverGenerator";
+import type { ExtractedFrame } from "@/lib/frameExtractor";
 
 type CreatePageContentProps = {
   mode: CreationMode;
@@ -42,20 +45,33 @@ export function CreatePageContent({ mode }: CreatePageContentProps) {
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) ?? templates[0];
   const [promptInputs, setPromptInputs] = useState<Partial<Record<PromptFieldKey, string>>>({});
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFileStatus, setSelectedFileStatus] = useState<"idle" | "valid" | "invalid">("idle");
   const [uploadMessage, setUploadMessage] = useState("先用本地文件名模拟上传，后续接对象存储 API。");
   const [submitState, setSubmitState] = useState<"idle" | "submitting" | "error">("idle");
   const [submitError, setSubmitError] = useState("");
+  const [extractedFrames, setExtractedFrames] = useState<ExtractedFrame[]>([]);
+  const [generatedCover, setGeneratedCover] = useState<string | null>(null);
+
+  function handleFramesExtracted(frames: ExtractedFrame[]) {
+    setExtractedFrames(frames);
+  }
+
+  function handleCoverGenerated(coverUrl: string) {
+    setGeneratedCover(coverUrl);
+  }
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0] ?? null;
     setSelectedFile(file);
 
     if (!file) {
+      setSelectedFileStatus("idle");
       setUploadMessage("先用本地文件名模拟上传，后续接对象存储 API。");
       return;
     }
 
     const result = validateMediaFile(file);
+    setSelectedFileStatus(result.ok ? "valid" : "invalid");
     setUploadMessage(result.ok ? `${file.name} 已选择，创建项目时会作为素材引用提交。` : result.message);
   }
 
@@ -149,9 +165,25 @@ export function CreatePageContent({ mode }: CreatePageContentProps) {
               </span>
               <span className="upload-title">{copy.uploadLabel}</span>
               <span className="upload-meta">MP4 / MOV / JPG / PNG</span>
-              <input className="file-input" type="file" accept="video/mp4,video/quicktime,image/jpeg,image/png,image/webp" onChange={handleFileChange} />
+              <input
+                aria-label={copy.uploadLabel}
+                className="file-input"
+                type="file"
+                accept="video/mp4,video/quicktime,image/jpeg,image/png,image/webp"
+                onChange={handleFileChange}
+              />
               <span className="upload-help">{uploadMessage}</span>
             </label>
+
+            {selectedFile ? (
+              <div className={selectedFileStatus === "valid" ? "selected-file-card valid" : "selected-file-card invalid"} aria-live="polite">
+                <span className="selected-file-kicker">{selectedFileStatus === "valid" ? "已选择文件" : "文件需要调整"}</span>
+                <strong>{selectedFile.name}</strong>
+                <span>
+                  {formatFileSize(selectedFile.size)} · {selectedFile.type || "未知类型"}
+                </span>
+              </div>
+            ) : null}
 
             <div className="prompt-panel">
               {(selectedTemplate?.requiredInputs ?? []).map((field) => (
@@ -166,6 +198,23 @@ export function CreatePageContent({ mode }: CreatePageContentProps) {
                 </label>
               ))}
             </div>
+
+            {/* 视频抽帧和封面生成 - 仅在上传视频模式下显示 */}
+            {mode === "upload_video" && selectedFile && selectedFileStatus === "valid" && (
+              <>
+                <VideoFrameExtractor
+                  videoFile={selectedFile}
+                  onFramesExtracted={handleFramesExtracted}
+                />
+
+                {extractedFrames.length > 0 && (
+                  <AiCoverGenerator
+                    frames={extractedFrames}
+                    onCoverGenerated={handleCoverGenerated}
+                  />
+                )}
+              </>
+            )}
           </aside>
 
           <section className="template-workspace">
@@ -231,3 +280,11 @@ const fieldLabel: Record<PromptFieldKey, string> = {
   style: "风格",
   blessing: "祝福语",
 };
+
+function formatFileSize(size: number) {
+  if (size < 1024 * 1024) {
+    return `${Math.max(1, Math.round(size / 1024))} KB`;
+  }
+
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}

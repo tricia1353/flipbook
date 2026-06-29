@@ -21,14 +21,24 @@ export default function HomePage() {
             <p className="eyebrow">移动端自助创作</p>
             <h1 className="headline">做一本会动的小礼物</h1>
             <p className="subcopy">
-              上传自己的短视频，或者用本人/宠物参考图生成幻想短片。系统会把 3-5 秒画面整理成口袋翻页书预览，再提交给人工微信确认制作。
+              上传短视频直接导出打印，或选择 AI 处理生成创意风格。系统会把 3-5 秒画面整理成口袋翻页书预览，再提交给人工微信确认制作。
             </p>
 
             <div className="entry-actions" aria-label="选择创作方式">
-              <Link className="entry-action primary" href="/create?mode=upload_video">
+              <Link className="entry-action primary" href="/video-to-flipbook">
                 <span>
                   <span className="entry-title">上传视频做翻页书</span>
-                  <span className="entry-desc">保留真实动作，换 AI 背景或变成电影/动画风格。</span>
+                  <span className="entry-desc">智能抽帧、导出 ZIP，直接打印制作实体翻页书</span>
+                </span>
+                <span className="entry-arrow" aria-hidden="true">
+                  →
+                </span>
+              </Link>
+
+              <Link className="entry-action secondary" href="/create?mode=upload_video">
+                <span>
+                  <span className="entry-title">上传视频（AI 处理）</span>
+                  <span className="entry-desc">保留真实动作，换 AI 背景或变成电影/动画风格</span>
                 </span>
                 <span className="entry-arrow" aria-hidden="true">
                   →
@@ -38,7 +48,7 @@ export default function HomePage() {
               <Link className="entry-action secondary" href="/create?mode=ai_generated_video">
                 <span>
                   <span className="entry-title">AI 生成我的幻想翻页书</span>
-                  <span className="entry-desc">上传本人、宝宝或宠物参考图，进入月球、森林或生日场景。</span>
+                  <span className="entry-desc">上传本人、宝宝或宠物参考图，进入月球、森林或生日场景</span>
                 </span>
                 <span className="entry-arrow" aria-hidden="true">
                   →
